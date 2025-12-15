@@ -13,4 +13,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onInputDialogData: (callback) => {
     ipcRenderer.once('input-dialog-data', (event, data) => callback(data));
   },
+  // OAuth approval dialog IPC
+  oauthApprovalResult: (approved, channelId) => {
+    if (channelId) {
+      ipcRenderer.send(channelId, { approved });
+    } else {
+      ipcRenderer.send('oauth-approval-result', { approved });
+    }
+  },
+  onOAuthApprovalData: (callback) => {
+    ipcRenderer.once('oauth-approval-data', (event, data) => callback(data));
+  },
 });

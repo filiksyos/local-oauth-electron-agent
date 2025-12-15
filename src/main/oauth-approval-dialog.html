@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>OAuth Approval</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+        background: #f5f5f5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        padding: 20px;
+      }
+      .container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        width: 100%;
+        max-width: 420px;
+        overflow: hidden;
+      }
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 24px;
+        text-align: center;
+      }
+      .header-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+      }
+      .header-title {
+        font-size: 20px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .header-subtitle {
+        font-size: 14px;
+        opacity: 0.9;
+      }
+      .content {
+        padding: 24px;
+      }
+      .app-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      .app-icon {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 24px;
+        font-weight: bold;
+        flex-shrink: 0;
+      }
+      .app-details {
+        flex: 1;
+        min-width: 0;
+      }
+      .app-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 4px;
+        word-break: break-word;
+      }
+      .app-url {
+        font-size: 12px;
+        color: #666;
+        word-break: break-all;
+      }
+      .permission-section {
+        margin-bottom: 24px;
+      }
+      .permission-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 12px;
+      }
+      .permission-list {
+        list-style: none;
+        padding: 0;
+      }
+      .permission-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        background: #f8f9fa;
+        border-radius: 6px;
+        margin-bottom: 8px;
+      }
+      .permission-icon {
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #667eea;
+        flex-shrink: 0;
+      }
+      .permission-text {
+        font-size: 14px;
+        color: #555;
+        flex: 1;
+      }
+      .user-info {
+        background: #e8f4f8;
+        border-left: 3px solid #667eea;
+        padding: 16px;
+        border-radius: 6px;
+        margin-bottom: 24px;
+      }
+      .user-info-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #667eea;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+      }
+      .user-info-item {
+        font-size: 14px;
+        color: #333;
+        margin-bottom: 4px;
+      }
+      .user-info-item:last-child {
+        margin-bottom: 0;
+      }
+      .buttons {
+        display: flex;
+        gap: 12px;
+      }
+      button {
+        flex: 1;
+        padding: 14px 24px;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: inherit;
+      }
+      .cancel-btn {
+        background: #f0f0f0;
+        color: #333;
+      }
+      .cancel-btn:hover {
+        background: #e0e0e0;
+      }
+      .approve-btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+      }
+      .approve-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+      .approve-btn:active {
+        transform: translateY(0);
+      }
+      .approve-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="header-icon">🔐</div>
+        <div class="header-title">Authorization Request</div>
+        <div class="header-subtitle">Review the permissions below</div>
+      </div>
+      
+      <div class="content">
+        <div class="app-info">
+          <div class="app-icon" id="appIcon">A</div>
+          <div class="app-details">
+            <div class="app-name" id="appName">Local Web App</div>
+            <div class="app-url" id="appUrl">http://localhost:3000</div>
+          </div>
+        </div>
+
+        <div class="permission-section">
+          <div class="permission-title">wants to access:</div>
+          <ul class="permission-list">
+            <li class="permission-item">
+              <div class="permission-icon">👤</div>
+              <div class="permission-text">Your name</div>
+            </li>
+            <li class="permission-item">
+              <div class="permission-icon">📧</div>
+              <div class="permission-text">Your email address</div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="user-info">
+          <div class="user-info-title">Your Information</div>
+          <div class="user-info-item">
+            <strong>Name:</strong> <span id="userName">-</span>
+          </div>
+          <div class="user-info-item">
+            <strong>Email:</strong> <span id="userEmail">-</span>
+          </div>
+        </div>
+
+        <div class="buttons">
+          <button class="cancel-btn" id="cancelBtn" onclick="cancel()">Cancel</button>
+          <button class="approve-btn" id="approveBtn" onclick="approve()">Approve</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let channelId = null;
+      let appName = 'Local Web App';
+      let appUrl = 'http://localhost:3000';
+
+      // Listen for data from main process
+      if (window.electronAPI && window.electronAPI.onOAuthApprovalData) {
+        window.electronAPI.onOAuthApprovalData((data) => {
+          channelId = data.channelId || null;
+          appName = data.appName || 'Local Web App';
+          appUrl = data.appUrl || 'http://localhost:3000';
+          
+          // Update UI
+          document.getElementById('appName').textContent = appName;
+          document.getElementById('appUrl').textContent = appUrl;
+          document.getElementById('appIcon').textContent = appName.charAt(0).toUpperCase();
+          document.getElementById('userName').textContent = data.userName || '-';
+          document.getElementById('userEmail').textContent = data.userEmail || '-';
+        });
+      } else {
+        // Fallback if IPC not ready yet
+        setTimeout(() => {
+          if (window.electronAPI && window.electronAPI.onOAuthApprovalData) {
+            window.electronAPI.onOAuthApprovalData((data) => {
+              channelId = data.channelId || null;
+              appName = data.appName || 'Local Web App';
+              appUrl = data.appUrl || 'http://localhost:3000';
+              
+              document.getElementById('appName').textContent = appName;
+              document.getElementById('appUrl').textContent = appUrl;
+              document.getElementById('appIcon').textContent = appName.charAt(0).toUpperCase();
+              document.getElementById('userName').textContent = data.userName || '-';
+              document.getElementById('userEmail').textContent = data.userEmail || '-';
+            });
+          }
+        }, 100);
+      }
+
+      function cancel() {
+        if (window.electronAPI && window.electronAPI.oauthApprovalResult) {
+          window.electronAPI.oauthApprovalResult(false, channelId);
+        }
+        window.close();
+      }
+
+      function approve() {
+        const approveBtn = document.getElementById('approveBtn');
+        approveBtn.disabled = true;
+        approveBtn.textContent = 'Approving...';
+        
+        if (window.electronAPI && window.electronAPI.oauthApprovalResult) {
+          window.electronAPI.oauthApprovalResult(true, channelId);
+        }
+        // Window will be closed by main process
+      }
+    </script>
+  </body>
+</html>
+

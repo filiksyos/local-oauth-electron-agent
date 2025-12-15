@@ -29,49 +29,46 @@ function startServer(keypair) {
 
   /**
    * POST /oauth - OAuth endpoint
-   * Receives request with nonce, shows system dialog, returns signed response
+   * Receives request with nonce, shows approval dialog, returns signed response
    */
   app.post('/oauth', async (req, res) => {
     try {
-      const { nonce } = req.body;
+      const { nonce, appName, appUrl } = req.body;
 
       console.log('[Server] Received OAuth request with nonce:', nonce);
+      console.log('[Server] App name:', appName || '(not provided)');
+      console.log('[Server] App URL:', appUrl || '(not provided)');
 
-      // Load saved config to use as defaults
+      // Load saved config
       const savedConfig = loadConfig();
-      const defaultName = savedConfig?.name || '';
-      const defaultEmail = savedConfig?.email || '';
+      const userName = savedConfig?.name || '';
+      const userEmail = savedConfig?.email || '';
 
-      console.log('[Server] Loaded saved config - Name:', defaultName || '(none)', 'Email:', defaultEmail || '(none)');
+      // Check if user has configured their identity
+      if (!userName || !userEmail) {
+        console.log('[Server] User identity not configured');
+        return res.status(400).json({
+          error: 'User identity not configured. Please set your name and email in the Local OAuth Agent.',
+        });
+      }
 
-      // Show input dialogs with saved values as defaults
-      let name, email;
+      console.log('[Server] Loaded saved config - Name:', userName, 'Email:', userEmail);
+
+      // Show OAuth approval dialog
+      let approved = false;
 
       try {
-        // Show input dialog for name with default value
-        name = await showInputDialog('Enter your name:', 'Name', defaultName);
+        approved = await showOAuthApprovalDialog({
+          appName: appName || 'Local Web App',
+          appUrl: appUrl || req.headers.origin || 'http://localhost:3000',
+          userName,
+          userEmail,
+        });
 
-        if (!name) {
-          console.log('[Server] User cancelled or provided empty name');
-          return res.status(400).json({
-            error: 'Name is required',
-          });
-        }
-
-        // Show input dialog for email with default value
-        email = await showInputDialog('Enter your email:', 'Email', defaultEmail);
-
-        if (!email) {
-          console.log('[Server] User cancelled or provided empty email');
-          return res.status(400).json({
-            error: 'Email is required',
-          });
-        }
-
-        // Validate email format (basic)
-        if (!email.includes('@')) {
-          return res.status(400).json({
-            error: 'Invalid email format',
+        if (!approved) {
+          console.log('[Server] User denied OAuth request');
+          return res.status(403).json({
+            error: 'User denied the request',
           });
         }
       } catch (dialogError) {
@@ -81,13 +78,13 @@ function startServer(keypair) {
         });
       }
 
-      console.log('[Server] User provided - Name:', name, 'Email:', email);
+      console.log('[Server] User approved OAuth request');
 
       // Create message to sign
       const timestamp = new Date().toISOString();
       const message = {
-        name,
-        email,
+        name: userName,
+        email: userEmail,
         timestamp,
         nonce,
       };
@@ -99,8 +96,8 @@ function startServer(keypair) {
 
       // Return signed response
       const response = {
-        name,
-        email,
+        name: userName,
+        email: userEmail,
         publicKey: keypair.publicKeyBase64,
         timestamp,
         signature,
@@ -131,6 +128,99 @@ function startServer(keypair) {
   });
 
   return server;
+}
+
+/**
+ * Show OAuth approval dialog (similar to MetaMask/Google OAuth)
+ * @param {Object} options - Dialog options
+ * @param {string} options.appName - Name of the requesting app
+ * @param {string} options.appUrl - URL of the requesting app
+ * @param {string} options.userName - User's name (from config)
+ * @param {string} options.userEmail - User's email (from config)
+ * @returns {Promise<boolean>} - true if approved, false if denied
+ */
+async function showOAuthApprovalDialog({ appName, appUrl, userName, userEmail }) {
+  const { BrowserWindow, ipcMain } = require('electron');
+  const path = require('path');
+
+  return new Promise((resolve) => {
+    const preloadPath = path.join(__dirname, 'input-preload.js');
+    
+    // Get the main window to use as parent for modal
+    const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+    
+    // Create unique channel for this dialog instance
+    const channelId = `oauth-approval-${Date.now()}-${Math.random()}`;
+    
+    const approvalWindow = new BrowserWindow({
+      width: 450,
+      height: 600,
+      modal: true,
+      parent: mainWindow || undefined,
+      show: false,
+      resizable: false,
+      webPreferences: {
+        preload: preloadPath,
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    // Store channel ID in window for cleanup
+    approvalWindow.channelId = channelId;
+
+    // Load HTML file
+    const htmlPath = path.join(__dirname, 'oauth-approval-dialog.html');
+    approvalWindow.loadFile(htmlPath);
+
+    // Send data to the dialog after it loads
+    approvalWindow.webContents.once('did-finish-load', () => {
+      approvalWindow.webContents.send('oauth-approval-data', {
+        appName: appName || 'Local Web App',
+        appUrl: appUrl || 'http://localhost:3000',
+        userName: userName || '',
+        userEmail: userEmail || '',
+        channelId: channelId,
+      });
+    });
+
+    let completed = false;
+
+    approvalWindow.once('ready-to-show', () => {
+      approvalWindow.show();
+      console.log('[Server] OAuth approval dialog displayed');
+    });
+
+    approvalWindow.on('closed', () => {
+      if (!completed) {
+        // Remove IPC listener if window closed without submitting
+        ipcMain.removeAllListeners(channelId);
+        resolve(false);
+      }
+    });
+
+    // Listen for IPC message from preload using unique channel
+    const handler = (event, data) => {
+      // Only handle if this is for our window
+      if (event.sender === approvalWindow.webContents) {
+        completed = true;
+        ipcMain.removeListener(channelId, handler);
+        approvalWindow.destroy();
+        resolve(data.approved === true);
+      }
+    };
+    
+    ipcMain.on(channelId, handler);
+
+    // Fallback: close window after 5 minutes
+    setTimeout(() => {
+      if (!completed && approvalWindow && !approvalWindow.isDestroyed()) {
+        ipcMain.removeListener(channelId, handler);
+        resolve(false);
+        approvalWindow.destroy();
+      }
+    }, 5 * 60 * 1000);
+  });
 }
 
 /**
