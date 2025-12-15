@@ -1,6 +1,7 @@
 const express = require('express');
 const { dialog } = require('electron');
 const { signMessage } = require('./crypto');
+const { loadConfig } = require('./config');
 
 /**
  * Start Express server for OAuth endpoint
@@ -36,52 +37,19 @@ function startServer(keypair) {
 
       console.log('[Server] Received OAuth request with nonce:', nonce);
 
-      // Show native system dialog asking for name and email
-      // We'll use a simple approach with two dialogs
+      // Load saved config to use as defaults
+      const savedConfig = loadConfig();
+      const defaultName = savedConfig?.name || '';
+      const defaultEmail = savedConfig?.email || '';
+
+      console.log('[Server] Loaded saved config - Name:', defaultName || '(none)', 'Email:', defaultEmail || '(none)');
+
+      // Show input dialogs with saved values as defaults
       let name, email;
 
       try {
-        // First dialog - Ask for name
-        const nameResult = await dialog.showMessageBox({
-          type: 'question',
-          title: 'Local OAuth - Enter Your Name',
-          message: 'Please enter your name:',
-          detail: 'Your identity will be cryptographically signed and verified.',
-          buttons: ['Cancel', 'Next'],
-          defaultId: 1,
-          cancelId: 0,
-        });
-
-        if (nameResult.response === 0) {
-          // User clicked Cancel
-          console.log('[Server] User cancelled OAuth - name input');
-          return res.status(400).json({
-            error: 'User cancelled identity verification',
-          });
-        }
-
-        // Show input dialog for name (using a workaround since showMessageBox doesn't have input)
-        // For now, we'll use the detail as context and prompt again
-        const nameInputResult = await dialog.showMessageBox({
-          type: 'info',
-          title: 'Local OAuth - Identity Verification',
-          message: 'Enter your name in the input field below:',
-          detail: 'Your name will be stored securely in the signed verification.',
-          buttons: ['Cancel', 'Continue'],
-          defaultId: 1,
-          cancelId: 0,
-        });
-
-        if (nameInputResult.response === 0) {
-          return res.status(400).json({
-            error: 'User cancelled identity verification',
-          });
-        }
-
-        // Since Electron's dialog doesn't have input fields, we use a workaround
-        // For MVP, we'll prompt via modal or use test data
-        // In production, you might want to show a BrowserWindow with HTML form
-        name = await showInputDialog('Enter your name:', 'Name');
+        // Show input dialog for name with default value
+        name = await showInputDialog('Enter your name:', 'Name', defaultName);
 
         if (!name) {
           console.log('[Server] User cancelled or provided empty name');
@@ -90,8 +58,8 @@ function startServer(keypair) {
           });
         }
 
-        // Second dialog - Ask for email
-        email = await showInputDialog('Enter your email:', 'Email');
+        // Show input dialog for email with default value
+        email = await showInputDialog('Enter your email:', 'Email', defaultEmail);
 
         if (!email) {
           console.log('[Server] User cancelled or provided empty email');
@@ -169,164 +137,86 @@ function startServer(keypair) {
  * Simple input dialog workaround for Electron
  * In production, you might want to create a BrowserWindow with React form
  * For MVP, we'll use a simple message box approach
+ * @param {string} message - Message to display
+ * @param {string} field - Field name (Name/Email)
+ * @param {string} defaultValue - Default value to pre-fill
  */
-async function showInputDialog(message, field) {
-  const { clipboard, dialog } = require('electron');
-
+async function showInputDialog(message, field, defaultValue = '') {
   // For MVP, we'll create a simple BrowserWindow with an HTML form
-  const { BrowserWindow } = require('electron');
+  const { BrowserWindow, ipcMain } = require('electron');
+  const path = require('path');
 
   return new Promise((resolve) => {
+    const preloadPath = path.join(__dirname, 'input-preload.js');
+    
+    // Get the main window to use as parent for modal
+    const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+    
+    // Create unique channel for this dialog instance
+    const channelId = `input-result-${Date.now()}-${Math.random()}`;
+    
     const inputWindow = new BrowserWindow({
       width: 400,
-      height: 200,
+      height: 250,
       modal: true,
+      parent: mainWindow || undefined,
       show: false,
       webPreferences: {
+        preload: preloadPath,
         nodeIntegration: false,
         contextIsolation: true,
       },
     });
 
-    inputWindow.loadURL(`data:text/html,<!DOCTYPE html>
-    <html>
-      <head>
-        <title>Local OAuth - ${field}</title>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            background: #f5f5f5;
-          }
-          .container {
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            width: 320px;
-          }
-          h2 {
-            color: #333;
-            margin: 0 0 15px 0;
-            font-size: 16px;
-          }
-          p {
-            color: #666;
-            margin: 0 0 15px 0;
-            font-size: 13px;
-          }
-          input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            box-sizing: border-box;
-            margin-bottom: 15px;
-          }
-          input:focus {
-            outline: none;
-            border-color: #4CAF50;
-          }
-          .buttons {
-            display: flex;
-            gap: 10px;
-          }
-          button {
-            flex: 1;
-            padding: 10px;
-            border: none;
-            border-radius: 4px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-          }
-          .cancel {
-            background: #f0f0f0;
-            color: #333;
-          }
-          .cancel:hover {
-            background: #e0e0e0;
-          }
-          .submit {
-            background: #4CAF50;
-            color: white;
-          }
-          .submit:hover {
-            background: #45a049;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h2>🔐 Local OAuth</h2>
-          <p>${message}</p>
-          <input type="text" id="input" placeholder="Enter ${field.toLowerCase()}" />
-          <div class="buttons">
-            <button class="cancel" onclick="window.close()">Cancel</button>
-            <button class="submit" onclick="submit()">Continue</button>
-          </div>
-        </div>
-        <script>
-          const input = document.getElementById('input');
-          input.focus();
-          input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-              submit();
-            }
-          });
-          function submit() {
-            const value = input.value.trim();
-            if (value) {
-              window.electronAPI?.inputResult(value);
-              window.close();
-            }
-          }
-        </script>
-      </body>
-    </html>`);
+    // Store channel ID in window for cleanup
+    inputWindow.channelId = channelId;
 
-    // Preload script for IPC
-    const preloadPath = require('path').join(__dirname, 'input-preload.js');
-    if (!require('fs').existsSync(preloadPath)) {
-      // Create preload file if it doesn't exist
-      require('fs').writeFileSync(
-        preloadPath,
-        `const { contextBridge, ipcRenderer } = require('electron');
-contextBridge.exposeInMainWorld('electronAPI', {
-  inputResult: (value) => ipcRenderer.send('input-result', value)
-});
-`
-      );
-    }
+    // Load HTML file
+    const htmlPath = path.join(__dirname, 'input-dialog.html');
+    inputWindow.loadFile(htmlPath);
+
+    // Send data to the dialog after it loads
+    inputWindow.webContents.once('did-finish-load', () => {
+      inputWindow.webContents.send('input-dialog-data', {
+        message: message,
+        placeholder: `Enter ${field.toLowerCase()}`,
+        defaultValue: defaultValue || '',
+        channelId: channelId,
+      });
+    });
 
     let completed = false;
 
     inputWindow.once('ready-to-show', () => {
       inputWindow.show();
+      console.log('[Server] Input dialog displayed for:', field);
     });
 
     inputWindow.on('closed', () => {
       if (!completed) {
+        // Remove IPC listener if window closed without submitting
+        ipcMain.removeAllListeners(channelId);
         resolve(null);
       }
     });
 
-    // Listen for IPC message from preload
-    const { ipcMain } = require('electron');
-    ipcMain.once('input-result', (event, value) => {
-      completed = true;
-      inputWindow.destroy();
-      resolve(value);
-    });
+    // Listen for IPC message from preload using unique channel
+    const handler = (event, value) => {
+      // Only handle if this is for our window
+      if (event.sender === inputWindow.webContents) {
+        completed = true;
+        ipcMain.removeListener(channelId, handler);
+        inputWindow.destroy();
+        resolve(value);
+      }
+    };
+    
+    ipcMain.on(channelId, handler);
 
     // Fallback: close window after 5 minutes
     setTimeout(() => {
       if (!completed && inputWindow && !inputWindow.isDestroyed()) {
+        ipcMain.removeListener(channelId, handler);
         resolve(null);
         inputWindow.destroy();
       }

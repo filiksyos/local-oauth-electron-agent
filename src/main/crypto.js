@@ -1,7 +1,15 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const ed = require('@noble/ed25519');
+
+// Lazy-load the ES Module
+let ed = null;
+async function getEd25519() {
+  if (!ed) {
+    ed = await import('@noble/ed25519');
+  }
+  return ed;
+}
 
 /**
  * Get the path to the keypair file following ghostmrr pattern
@@ -47,8 +55,9 @@ async function loadOrCreateKeypair() {
 
   // Generate new keypair
   console.log('[Crypto] Generating new ED25519 keypair...');
-  const privateKey = ed.utils.randomPrivateKey();
-  const publicKey = await ed.getPublicKeyAsync(privateKey);
+  const ed25519 = await getEd25519();
+  const privateKey = ed25519.utils.randomPrivateKey();
+  const publicKey = await ed25519.getPublicKeyAsync(privateKey);
   const publicKeyBase64 = Buffer.from(publicKey).toString('base64');
 
   // Save keypair
@@ -75,8 +84,9 @@ async function loadOrCreateKeypair() {
  * Sign a message with the private key
  */
 async function signMessage(message, privateKey) {
+  const ed25519 = await getEd25519();
   const messageBytes = new TextEncoder().encode(JSON.stringify(message));
-  const signature = await ed.signAsync(messageBytes, privateKey);
+  const signature = await ed25519.signAsync(messageBytes, privateKey);
   return Buffer.from(signature).toString('base64');
 }
 

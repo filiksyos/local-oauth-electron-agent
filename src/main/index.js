@@ -1,8 +1,9 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const startServer = require('./server');
 const { loadOrCreateKeypair } = require('./crypto');
+const { loadConfig, saveConfig } = require('./config');
 
 let mainWindow;
 let serverInstance;
@@ -15,76 +16,41 @@ app.on('ready', async () => {
     console.log('[Local OAuth] Keypair initialized');
     console.log('[Local OAuth] Public Key:', keypair.publicKey);
 
-    // Create hidden window (or minimal window)
+    // Create main window with form
     mainWindow = new BrowserWindow({
-      width: 400,
-      height: 300,
-      show: false,
+      width: 450,
+      height: 500,
+      show: false, // Don't show until ready
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
+        preload: path.join(__dirname, 'input-preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },
     });
 
-    // Load a simple HTML page or just keep it hidden
-    mainWindow.loadURL(`data:text/html,<!DOCTYPE html>
-    <html>
-      <head>
-        <title>Local OAuth Agent</title>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            background: #f5f5f5;
-          }
-          .container {
-            text-align: center;
-            background: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-          }
-          h1 {
-            color: #333;
-            margin: 0 0 10px 0;
-          }
-          p {
-            color: #666;
-            margin: 0;
-            font-size: 14px;
-          }
-          .status {
-            display: inline-block;
-            background: #4CAF50;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            margin-top: 10px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>🔐 Local OAuth Agent</h1>
-          <p>Running on http://localhost:5000</p>
-          <div class="status">Active</div>
-        </div>
-      </body>
-    </html>`);
+    // Show window when ready
+    mainWindow.once('ready-to-show', () => {
+      mainWindow.show();
+      console.log('[Local OAuth] Main window displayed');
+    });
+
+    // Handle page load errors
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      console.error('[Local OAuth] Failed to load page:', errorCode, errorDescription);
+    });
+
+    // Load HTML page with form
+    const htmlPath = path.join(__dirname, 'index.html');
+    console.log('[Local OAuth] Loading HTML from:', htmlPath);
+    mainWindow.loadFile(htmlPath);
 
     // Start Express server
     console.log('[Local OAuth] Starting Express server on port 5000...');
     serverInstance = startServer(keypair);
 
-    // Don't show window by default, but allow developer to open it
+
+    // Open DevTools in dev mode
     if (process.argv.includes('--dev')) {
-      mainWindow.show();
       mainWindow.webContents.openDevTools();
     }
   } catch (error) {
@@ -108,5 +74,27 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (mainWindow === null) {
     mainWindow = new BrowserWindow();
+  }
+});
+
+// IPC handlers for user info
+ipcMain.handle('save-user-info', async (event, email, name) => {
+  try {
+    const config = saveConfig(email, name);
+    console.log('[Main] User info saved:', { email, name });
+    return config;
+  } catch (error) {
+    console.error('[Main] Error saving user info:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('load-user-info', async (event) => {
+  try {
+    const config = loadConfig();
+    return config || { email: null, name: null };
+  } catch (error) {
+    console.error('[Main] Error loading user info:', error);
+    return { email: null, name: null };
   }
 });
